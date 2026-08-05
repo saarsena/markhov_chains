@@ -59,6 +59,22 @@ chordtonesonly 0, chordweight 3, baseoctave 4, octaverange 2, probability 70, ro
 
 The bass outlines the harmony; the lead implies it. Raise `chordweight` (try 5–8) for a lead that spells the changes more explicitly, lower `probability` for sparser phrasing. Add `drum_chain.js` on the same clock for a kit; `dejavuchance 40` on the drums makes patterns settle into grooves instead of wandering.
 
+## Clash avoidance (pairing two voices)
+
+Each `mchains` instance has a second inlet that accepts `otherNote <pitch>` — tell it what the *other* voice is currently sounding, and its fresh draws will avoid landing at dissonant intervals against that pitch, on a pitch-class basis (a lead note a semitone above the bass's pitch class is avoided even two octaves up). `otherNote -1` means "the other voice is silent" and disables the filter (the default).
+
+Wire each instance's note output back into its partner's right inlet, translating on the way — the outlet emits raw `note velocity` lists, so convert: `[unpack 0 0]` → if velocity is 0 send `otherNote -1`, otherwise `[prepend otherNote]` the pitch.
+
+The avoided intervals are settable: `clashintervals 1` (the default) avoids semitone clashes; `clashintervals 1 6` also avoids tritones; `clashintervals 0 1` additionally forbids doubling the other voice's pitch class. Values are pitch-class distances 0–6. Notes on the filter's behavior:
+
+- It reshapes the draw *within* the chain's allowed set — harmony, anchors, and proximity weighting all still apply. If a step's every legal note would clash, the filter steps aside (with a one-time console warning) rather than silencing the walk.
+- Deja vu repeats are exempt — an echoed motif note is repeated verbatim, only fresh draws dodge.
+- It's live state, not a rebuild: `otherNote` updates cost nothing per tick.
+
+## Per-instrument drum probability
+
+`drum_chain.js` layers two probability gates over the drawn pattern. `probability` rests entire ticks, as in the melody object; `kickprob` / `snareprob` / `hihatprob` (each 0–100, default 100) then thin individual instruments, so a hit's effective chance is `probability × instrumentprob / 100`. Neither layer touches the Markov walk — the full pattern keeps evolving (and deja vu keeps echoing it) underneath; the gates only decide what you hear. `hihatprob 60` drops hats stochastically out of a groove that stays coherent.
+
 ## Deja vu
 
 Both objects support a repeat-chance: each tick rolls against `dejavuchance`, and on a hit the tick replays a random pick from the last `dejavulookback` events instead of doing a fresh Markov draw. Every tick's choice — fresh or repeated, played or rested — enters the history, so repeats can themselves be repeated: small motifs emerge and dissolve. `0` (the default) is off; high values loop hard; something like `30`–`60` with a lookback of 3–8 gives phrases a memory without freezing them.
@@ -82,6 +98,8 @@ Both objects support a repeat-chance: each tick rolls against `dejavuchance`, an
 | `velocity <1-127>` | 100 | Note-on velocity. |
 | `dejavuchance <0-100>` | 0 | Chance a tick repeats a recent pitch instead of drawing fresh. |
 | `dejavulookback <n>` | 4 | How many recent events the repeat can pull from (min 1). |
+| `otherNote <pitch/-1>` | -1 | The paired voice's sounding MIDI pitch; -1 = silent, filter off. Camel case, unlike the other messages. |
+| `clashintervals <0-6> ...` | 1 | Pitch-class distances to avoid against `otherNote`, e.g. `clashintervals 1 6`. |
 | `reset` | — | Note-off anything sounding, clear the walk and deja vu history, restart the loop at step 1. Also happens automatically on every rebuild. |
 | `scale <root> <pattern>`, `root <note>`, `scaleidx <0-12>` | c dorian | Fallback single-scale context (used only before any progression is set). |
 | `baseoctave <n>`, `octaverange <n>` | 3, 3 | Pitch window for the note pool / progression alphabet. |
@@ -99,6 +117,9 @@ Bad messages (unknown numeral, anchor conflicting with a chord, unsatisfiable co
 | `bang` | — | Advance one step; fire the drawn hit combination, or rest. |
 | `totalsteps <n>` | 16 | Loop length (walk position wraps here; min 1). |
 | `probability <0-100>` | 100 | Chance each tick fires at all. A failed roll silences the whole tick — the walk still advances. |
+| `kickprob <0-100>` | 100 | Per-instrument gate on kick hits, under the global gate. |
+| `snareprob <0-100>` | 100 | Per-instrument gate on snare hits. |
+| `hihatprob <0-100>` | 100 | Per-instrument gate on hihat hits. |
 | `dejavuchance <0-100>` | 0 | Chance a tick repeats a recent hit state instead of drawing fresh. |
 | `dejavulookback <n>` | 4 | Repeat window (min 1). |
 | `reset` | — | Clear the walk and history, restart at step 1. |

@@ -1,3 +1,4 @@
+inlets = 2;
 outlets = 1;
 
 const core = require("mchain_core.js");
@@ -106,6 +107,10 @@ let posIndex = 0;
 let dejaVuChance = 0;
 let dejaVuLookback = 4;
 let history = [];
+
+let otherNote = -1;
+let clashIntervals = new Set([1]);
+let clashFallbackWarned = false;
 
 function buildNoteList() {
     noteList = [];
@@ -273,6 +278,7 @@ function tryActivateSpec(spec) {
     if (!m) return false;
     activeSpec = spec;
     model = m;
+    clashFallbackWarned = false;
     reset();
     return true;
 }
@@ -284,8 +290,36 @@ function rebuildModel() {
     const m = computeModel(segs);
     if (!m) return false;
     model = m;
+    clashFallbackWarned = false;
     reset();
     return true;
+}
+
+// Live clash avoidance against the paired voice. Depends on external state
+// (otherNote), so it filters at draw time rather than living in the
+// precomputed matrices; drawFrom samples proportionally, so no explicit
+// renormalization of the filtered row is needed.
+function drawClashFiltered(row) {
+    if (otherNote < 0) return core.drawFrom(row);
+    const n = row.length;
+    const filtered = new Float64Array(n);
+    let s = 0;
+    for (let b = 0; b < n; b++) {
+        if (row[b] <= 0) continue;
+        const d = mod12(model.alphabet[b] - otherNote);
+        if (clashIntervals.has(Math.min(d, 12 - d))) continue;
+        filtered[b] = row[b];
+        s += row[b];
+    }
+    if (s <= 0) {
+        if (!clashFallbackWarned) {
+            clashFallbackWarned = true;
+            post("markov: every candidate clashes with otherNote " + otherNote +
+                " -- falling back to unfiltered draw (warning once per build)\n");
+        }
+        return core.drawFrom(row);
+    }
+    return core.drawFrom(filtered);
 }
 
 function allNotesOff() {
@@ -314,8 +348,8 @@ function bang() {
         let idx = (dv !== null) ? model.alphabet.indexOf(dv) : -1;
         if (idx < 0)
             idx = (currentNote === undefined)
-                ? core.drawFrom(model.P0)
-                : core.drawFrom(model.MT[p][currentNote]);
+                ? drawClashFiltered(model.P0)
+                : drawClashFiltered(model.MT[p][currentNote]);
         if (idx < 0) {
             post("markov: zero transition row at step " + (p + 1) +
                 " -- construction bug, no note emitted\n");
@@ -523,4 +557,26 @@ function anything() {
             history.splice(0, history.length - dejaVuLookback);
         return;
     }
+    if (messagename === "otherNote") {
+        let v = parseInt(arguments[0]);
+        if (isNaN(v) || v < 0) v = -1;
+        otherNote = v;
+        return;
+    }
+    if (messagename === "clashintervals") {
+        const vals = [];
+        for (let i = 0; i < arguments.length; i++) {
+            const v = parseInt(arguments[i]);
+            if (!isNaN(v) && v >= 0 && v <= 6) vals.push(v);
+            else post("markov: clashintervals: ignoring '" + arguments[i] +
+                "' (want semitones 0-6)\n");
+        }
+        if (!vals.length) {
+            post("markov: usage: clashintervals <semitones 0-6> ...\n");
+            return;
+        }
+        clashIntervals = new Set(vals);
+        return;
+    }
+    post("markov: unknown message '" + messagename + "'\n");
 }

@@ -9,6 +9,9 @@ const ALPHABET = [0, 1, 2, 3, 4, 5, 6, 7];
 
 let totalSteps = 16;
 let probability = 100;
+let kickProb = 100;
+let snareProb = 100;
+let hihatProb = 100;
 let dejaVuChance = 0;
 let dejaVuLookback = 4;
 let history = [];
@@ -63,11 +66,13 @@ function bang() {
     if (history.length > dejaVuLookback)
         history.splice(0, history.length - dejaVuLookback);
 
-    // Gate applies to the whole state: a failed roll is a rest, nothing fires.
+    // Two probability layers over the drawn state: the global gate rests the
+    // whole tick, then each set bit rolls its own instrument gate. Neither
+    // touches the walk or history -- the underlying pattern stays intact.
     if (Math.random() * 100 < probability) {
-        if (state & 4) outlet(0, "bang");
-        if (state & 2) outlet(1, "bang");
-        if (state & 1) outlet(2, "bang");
+        if ((state & 4) && Math.random() * 100 < kickProb) outlet(0, "bang");
+        if ((state & 2) && Math.random() * 100 < snareProb) outlet(1, "bang");
+        if ((state & 1) && Math.random() * 100 < hihatProb) outlet(2, "bang");
     }
 }
 
@@ -89,6 +94,24 @@ function anything() {
         probability = Math.max(0, Math.min(100, v));
         return;
     }
+    if (messagename === "kickprob") {
+        let v = parseFloat(arguments[0]);
+        if (isNaN(v)) v = 100;
+        kickProb = Math.max(0, Math.min(100, v));
+        return;
+    }
+    if (messagename === "snareprob") {
+        let v = parseFloat(arguments[0]);
+        if (isNaN(v)) v = 100;
+        snareProb = Math.max(0, Math.min(100, v));
+        return;
+    }
+    if (messagename === "hihatprob") {
+        let v = parseFloat(arguments[0]);
+        if (isNaN(v)) v = 100;
+        hihatProb = Math.max(0, Math.min(100, v));
+        return;
+    }
     if (messagename === "dejavuchance") {
         let v = parseFloat(arguments[0]);
         if (isNaN(v)) v = 0;
@@ -103,4 +126,5 @@ function anything() {
             history.splice(0, history.length - dejaVuLookback);
         return;
     }
+    post("drum_chain: unknown message '" + messagename + "'\n");
 }
